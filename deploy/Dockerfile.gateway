@@ -1,0 +1,35 @@
+ARG NODE_IMAGE=node:22-bookworm-slim
+ARG GO_IMAGE=golang:1.25-trixie
+ARG RUNTIME_IMAGE=debian:trixie-slim
+FROM ${NODE_IMAGE} AS web-build
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+FROM ${GO_IMAGE} AS go-build
+ARG VERSION=dev
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+RUN rm -rf /src/internal/api/static
+COPY --from=web-build /src/web/dist/ ./internal/api/static/
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/gostream3d ./cmd/server
+
+FROM ${RUNTIME_IMAGE}
+RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /data
+COPY --from=go-build /out/gostream3d /app/gostream3d
+COPY --from=web-build /src/web/dist /app/web/dist
+COPY deploy/entrypoint.gateway.sh /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod 0755 /app/entrypoint.sh
+ENV DOCKER_HOST=unix:///var/run/docker.sock GOSTREAM3D_WEB_DIST=/app/web/dist
+EXPOSE 8888
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s \
+    CMD curl -fsS "http://127.0.0.1:${GOSTREAM3D_HTTP_PORT:-8888}/healthz" || exit 1
+ENTRYPOINT ["/app/entrypoint.sh"]

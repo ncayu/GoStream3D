@@ -1,0 +1,17 @@
+# The release packager compiles the current source and copies the fresh web build.
+ARG RUNTIME_IMAGE=debian:trixie-slim
+FROM ${RUNTIME_IMAGE}
+RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /data
+COPY gostream3d /app/gostream3d
+COPY web/dist/ /app/web/dist/
+COPY entrypoint.gateway.sh /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod 0755 /app/entrypoint.sh /app/gostream3d
+ARG VERSION=dev
+LABEL org.opencontainers.image.version="${VERSION}"
+ENV DOCKER_HOST=unix:///var/run/docker.sock GOSTREAM3D_WEB_DIST=/app/web/dist
+EXPOSE 8888
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s \
+    CMD curl -fsS "http://127.0.0.1:${GOSTREAM3D_HTTP_PORT:-8888}/healthz" || exit 1
+ENTRYPOINT ["/app/entrypoint.sh"]

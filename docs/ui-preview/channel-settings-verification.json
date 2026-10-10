@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "checks": [
+    "create 10 and edit 20 above current capacity 3",
+    "integer ranges",
+    "settings navigation from edit",
+    "total capacity draft/failure/success/reload",
+    "read failure and retry",
+    "resource quota updates",
+    "390px layout",
+    "no runtime data changes"
+  ],
+  "interceptedWrites": 4
+}

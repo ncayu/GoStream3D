@@ -1,0 +1,26 @@
+{
+  "apiWrites": [
+    {
+      "action": "create",
+      "max_viewers": 6,
+      "preload_count": 3
+    },
+    {
+      "action": "edit",
+      "max_viewers": 6,
+      "preload_count": 2
+    }
+  ],
+  "checks": [
+    "create preload 3",
+    "quota reduction clamps preload",
+    "edit preserves independent quota",
+    "ready counts",
+    "mobile layout",
+    "visible waiting and elapsed time",
+    "input blocked before frame",
+    "input forwarded after frame",
+    "capacity full shown without opening socket"
+  ],
+  "errors": []
+}

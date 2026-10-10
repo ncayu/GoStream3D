@@ -1,0 +1,4 @@
+# Reuse the CPU image already installed on the server; no browser rebuild is needed.
+ARG BASE_IMAGE=gostream3d/neko/chromium:3.1.5
+FROM ${BASE_IMAGE}
+ENV NEKO_SESSION_COOKIE_ENABLED=false

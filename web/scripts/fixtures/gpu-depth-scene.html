@@ -1,0 +1,123 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Independent WebGL depth regression scene</title>
+<style>html,body{margin:0;background:#102036;color:white;font:20px sans-serif}canvas{width:100vw;height:90vh}p{margin:8px}</style>
+<canvas id="scene" width="1920" height="1080"></canvas>
+<p>Independent WebGL2 scene: the nearer green surface must cover the farther red surface.</p>
+<script>
+'use strict';
+window.__depthSceneID=Date.now()+'-'+Math.random();
+const canvas = document.querySelector('canvas');
+// Resolve the offscreen colour into a non-MSAA default framebuffer. MSAA
+// compatibility is exercised separately below with matching attachments.
+const gl = canvas.getContext('webgl2', {antialias:false});
+if (!gl) throw Error('WebGL2 is required for this test');
+function shader(type, source) {
+  const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const program=gl.createProgram();
+gl.attachShader(program,shader(gl.VERTEX_SHADER,`#version 300 es
+uniform float z;
+void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,z,1.);}`));
+gl.attachShader(program,shader(gl.FRAGMENT_SHADER,`#version 300 es
+precision highp float;uniform vec4 color;out vec4 outColor;void main(){outColor=color;}`));
+gl.linkProgram(program);
+if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
+const z=gl.getUniformLocation(program,'z'),color=gl.getUniformLocation(program,'color');
+function renderbuffer(g,format,w,h,samples=null){
+  const rb=g.createRenderbuffer();g.bindRenderbuffer(g.RENDERBUFFER,rb);
+  if(samples===null)g.renderbufferStorage(g.RENDERBUFFER,format,w,h);
+  else g.renderbufferStorageMultisample(g.RENDERBUFFER,samples,format,w,h);
+  return rb;
+}
+function target(w,h){
+  const framebuffer=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,framebuffer);
+  const depth=renderbuffer(gl,gl.DEPTH_COMPONENT16,w,h);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,depth);
+  const rgba=renderbuffer(gl,gl.RGBA8,w,h);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.RENDERBUFFER,rgba);
+  if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)throw Error('Incomplete depth target');
+  return {framebuffer,depth,rgba};
+}
+let current=target(canvas.width,canvas.height);
+function draw(){
+  gl.bindFramebuffer(gl.FRAMEBUFFER,current.framebuffer);gl.viewport(0,0,canvas.width,canvas.height);
+  gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.useProgram(program);gl.uniform1f(z,.75);gl.uniform4f(color,0,1,0,1);gl.drawArrays(gl.TRIANGLES,0,3);
+  gl.uniform1f(z,.750001);gl.uniform4f(color,1,0,0,1);gl.drawArrays(gl.TRIANGLES,0,3);
+  const pixel=new Uint8Array(4);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+  gl.bindFramebuffer(gl.READ_FRAMEBUFFER,current.framebuffer);gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,null);
+  gl.blitFramebuffer(0,0,canvas.width,canvas.height,0,0,canvas.width,canvas.height,gl.COLOR_BUFFER_BIT,gl.NEAREST);
+  return Array.from(pixel);
+}
+window.resizeScene=(w,h)=>{
+  gl.deleteRenderbuffer(current.depth);gl.deleteRenderbuffer(current.rgba);gl.deleteFramebuffer(current.framebuffer);
+  canvas.width=w;canvas.height=h;current=target(w,h);return draw();
+};
+window.depthProbe=()=>{
+  const pixel=draw();gl.bindRenderbuffer(gl.RENDERBUFFER,current.depth);
+  const bits=gl.getRenderbufferParameter(gl.RENDERBUFFER,gl.RENDERBUFFER_DEPTH_SIZE);
+  const formats=[gl.DEPTH_COMPONENT24,gl.DEPTH_COMPONENT32F,gl.DEPTH24_STENCIL8,gl.DEPTH32F_STENCIL8,gl.RGBA8];
+  const preserved=formats.map(format=>{
+    const rb=renderbuffer(gl,format,32,32),actual=gl.getRenderbufferParameter(gl.RENDERBUFFER,gl.RENDERBUFFER_INTERNAL_FORMAT);
+    gl.deleteRenderbuffer(rb);return {requested:format,actual};
+  });
+  // Main-thread OffscreenCanvas shares WebGL2's prototype; workers have a separate realm.
+  const off=new OffscreenCanvas(32,32).getContext('webgl2');
+  const offRB=renderbuffer(off,off.DEPTH_COMPONENT16,32,32);
+  const offscreenBits=off.getRenderbufferParameter(off.RENDERBUFFER,off.RENDERBUFFER_DEPTH_SIZE);
+  off.deleteRenderbuffer(offRB);off.getExtension('WEBGL_lose_context')?.loseContext();
+  const legacy=document.createElement('canvas').getContext('webgl');
+  const legacyRB=renderbuffer(legacy,legacy.DEPTH_COMPONENT16,32,32);
+  const legacyBits=legacy.getRenderbufferParameter(legacy.RENDERBUFFER,legacy.RENDERBUFFER_DEPTH_SIZE);
+  const legacyError=legacy.getError();legacy.deleteRenderbuffer(legacyRB);legacy.getExtension('WEBGL_lose_context')?.loseContext();
+  // Depth textures must keep their format and type: do not rewrite their storage.
+  // An engine may copy a depth renderbuffer into a depth texture. Depth
+  // formats must match for blitFramebuffer to succeed.
+  const copyGL=document.createElement('canvas').getContext('webgl2',{antialias:false});
+  const copySource=copyGL.createFramebuffer();copyGL.bindFramebuffer(copyGL.FRAMEBUFFER,copySource);
+  const copyDepth=renderbuffer(copyGL,copyGL.DEPTH_COMPONENT16,32,32);
+  copyGL.framebufferRenderbuffer(copyGL.FRAMEBUFFER,copyGL.DEPTH_ATTACHMENT,copyGL.RENDERBUFFER,copyDepth);
+  const copyTexture=copyGL.createTexture();copyGL.bindTexture(copyGL.TEXTURE_2D,copyTexture);
+  copyGL.texImage2D(copyGL.TEXTURE_2D,0,copyGL.DEPTH_COMPONENT16,32,32,0,copyGL.DEPTH_COMPONENT,copyGL.UNSIGNED_SHORT,null);
+  const copyTarget=copyGL.createFramebuffer();copyGL.bindFramebuffer(copyGL.FRAMEBUFFER,copyTarget);
+  copyGL.framebufferTexture2D(copyGL.FRAMEBUFFER,copyGL.DEPTH_ATTACHMENT,copyGL.TEXTURE_2D,copyTexture,0);
+  const textureComplete=copyGL.checkFramebufferStatus(copyGL.FRAMEBUFFER)===copyGL.FRAMEBUFFER_COMPLETE;
+  copyGL.bindFramebuffer(copyGL.READ_FRAMEBUFFER,copySource);copyGL.bindFramebuffer(copyGL.DRAW_FRAMEBUFFER,copyTarget);
+  copyGL.blitFramebuffer(0,0,32,32,0,0,32,32,copyGL.DEPTH_BUFFER_BIT,copyGL.NEAREST);
+  const depthCopyError=copyGL.getError();
+  copyGL.bindRenderbuffer(copyGL.RENDERBUFFER,copyDepth);
+  const depthCopyBits=copyGL.getRenderbufferParameter(copyGL.RENDERBUFFER,copyGL.RENDERBUFFER_DEPTH_SIZE);
+  copyGL.getExtension('WEBGL_lose_context')?.loseContext();
+  const msaa=[0,2,4,5].map(requested=>{
+    const counts=Array.from(gl.getInternalformatParameter(gl.RENDERBUFFER,gl.DEPTH_COMPONENT16,gl.SAMPLES));
+    const expected=requested===0?0:Math.min(...counts.filter(n=>n>=requested));
+    if(!Number.isFinite(expected))return {requested,unsupported:true};
+    const depth=renderbuffer(gl,gl.DEPTH_COMPONENT16,32,32,requested);
+    const actual=gl.getRenderbufferParameter(gl.RENDERBUFFER,gl.RENDERBUFFER_SAMPLES);
+    const depthBits=gl.getRenderbufferParameter(gl.RENDERBUFFER,gl.RENDERBUFFER_DEPTH_SIZE);
+    const f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,depth);
+    const rgba=renderbuffer(gl,gl.RGBA8,32,32,requested);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.RENDERBUFFER,rgba);
+    const complete=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
+    gl.deleteFramebuffer(f);gl.deleteRenderbuffer(depth);gl.deleteRenderbuffer(rgba);
+    return {requested,expected,actual,depthBits,complete};
+  });
+  const ext=gl.getExtension('WEBGL_debug_renderer_info');
+  return {profile:window.__g3dGPUDepth,bits,pixel,preserved,offscreenBits,legacyBits,legacyError,textureComplete,depthCopyError,depthCopyBits,msaa,error:gl.getError(),size:[canvas.width,canvas.height],renderer:ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER)};
+};
+draw();
+addEventListener('message',event=>{
+  if(!event.data.createNestedFrame)return;
+  const frame=document.createElement('iframe');frame.src=event.data.createNestedFrame;
+  addEventListener('message',child=>{
+    if(child.source===frame.contentWindow&&child.data.depthReport)
+      window.parent.postMessage({nestedDepthReport:child.data.depthReport},'*');
+  });
+  document.body.append(frame);
+});
+if(window.parent!==window)window.parent.postMessage({depthReport:depthProbe()},'*');
+</script>

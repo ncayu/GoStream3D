@@ -1,0 +1,8 @@
+ARG BASE_IMAGE=gostream3d/neko/chromium:3.1.5
+FROM ${BASE_IMAGE}
+ENV NEKO_SESSION_COOKIE_ENABLED=false
+COPY launch-gostream3d.sh /usr/local/bin/launch-gostream3d.sh
+COPY sync-chromium-window.sh /usr/local/bin/sync-chromium-window.sh
+COPY supervisord.worker.conf /etc/neko/supervisord/chromium.conf
+RUN sed -i 's/\r$//' /usr/local/bin/launch-gostream3d.sh /usr/local/bin/sync-chromium-window.sh \
+    && chmod 0755 /usr/local/bin/launch-gostream3d.sh /usr/local/bin/sync-chromium-window.sh

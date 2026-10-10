@@ -1,0 +1,55 @@
+services:
+  gateway:
+    image: ${GOSTREAM3D_GATEWAY_IMAGE:-gostream3d/gateway:latest}
+    pull_policy: never
+    network_mode: host
+    init: true
+    cgroup_parent: ${GOSTREAM3D_CGROUP_PARENT:-}
+    runtime: ${GOSTREAM3D_GATEWAY_RUNTIME:-runc}
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      GOSTREAM3D_RUNTIME: docker
+      GOSTREAM3D_ICE_PUBLIC_IP: "${GOSTREAM3D_ICE_PUBLIC_IP:?Missing viewer IP. Run bash start.sh --public-ip SERVER_IP or set GOSTREAM3D_ICE_PUBLIC_IP in .env}"
+      GOSTREAM3D_HTTP_PORT: ${GOSTREAM3D_HTTP_PORT:-8888}
+      GOSTREAM3D_HOST_ROOT: /host/root
+      GOSTREAM3D_HOST_MOUNTINFO: /host/mountinfo
+      GOSTREAM3D_GPU_BACKEND: ${GOSTREAM3D_GPU_BACKEND:-auto}
+      GOSTREAM3D_GPU_RENDER_DEVICE: ${GOSTREAM3D_GPU_RENDER_DEVICE:-}
+      GOSTREAM3D_CGROUP_PARENT: ${GOSTREAM3D_CGROUP_PARENT:-}
+      GOSTREAM3D_CPU_CGROUP_PATH: ${GOSTREAM3D_CPU_CGROUP_PATH:-}
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: utility
+      LD_LIBRARY_PATH: /usr/lib/wsl/lib
+    volumes:
+      # Only the application's shared group is writable, not the whole hierarchy.
+      - type: bind
+        source: ${GOSTREAM3D_CPU_CGROUP_DIR:-./cpu-control}
+        target: /host/cpu
+      - type: bind
+        source: ${GOSTREAM3D_GPU_LIBRARY_DIR:-./gpu-libs}
+        target: /usr/lib/wsl
+        read_only: true
+      - type: bind
+        source: ${GOSTREAM3D_DOCKER_SOCKET:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${GOSTREAM3D_DATA_DIR:-./data}
+        target: /data
+      # Read-only host filesystem statistics; keep host mountpoint names in the API.
+      - type: bind
+        source: /
+        target: /host/root
+        read_only: true
+        bind:
+          propagation: rslave
+          create_host_path: false
+      - type: bind
+        source: /proc/1/mountinfo
+        target: /host/mountinfo
+        read_only: true
+        bind:
+          create_host_path: false
+    restart: unless-stopped
+    stop_grace_period: 45s

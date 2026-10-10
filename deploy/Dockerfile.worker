@@ -1,0 +1,75 @@
+# Build the modified Neko and Xorg drivers against the same userspace as runtime.
+ARG GO_IMAGE=golang:1.25-trixie
+ARG RUNTIME_IMAGE=debian:trixie-slim
+FROM ${GO_IMAGE} AS build
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
+RUN --mount=type=cache,id=gostream3d-build-apt,target=/var/cache/apt \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+    gcc pkgconf autoconf automake libtool make patch xorg-dev xutils-dev \
+    libx11-dev libxrandr-dev libxtst-dev libgtk-3-dev libxcvt-dev \
+    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY runtime-sources/server/ /src/server/
+WORKDIR /src/server
+RUN CGO_ENABLED=1 go build -mod=vendor -buildvcs=false -trimpath -o /out/neko ./cmd/neko
+COPY runtime-sources/xorg-deps/ /src/xorg-deps/
+RUN find /src/xorg-deps -type f \( -name '*.c' -o -name '*.h' -o -name '*.ac' \
+    -o -name '*.am' -o -name '*.sh' -o -name '*.patch' \) -exec sed -i 's/\r$//' {} +
+WORKDIR /src/xorg-deps/xf86-video-dummy/v0.3.8
+RUN patch --batch --forward -p1 < ../01_v0.3.8_xdummy-randr.patch \
+    && autoreconf -v --install \
+    && ./configure --prefix=/usr --with-xorg-module-dir=/usr/lib/xorg/modules \
+    && make -j2 && make install
+WORKDIR /src/xorg-deps/xf86-input-neko
+RUN sh ./autogen.sh \
+    && ./configure --prefix=/usr --with-xorg-module-dir=/usr/lib/xorg/modules \
+    && make -j2 && make install
+
+FROM ${RUNTIME_IMAGE}
+RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates \
+    && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
+RUN --mount=type=cache,id=gostream3d-runtime-apt,target=/var/cache/apt \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+    ca-certificates curl supervisor socat dbus chromium chromium-common chromium-sandbox \
+    xserver-xorg-core pulseaudio dbus-x11 x11-utils xdotool xclip libgtk-3-0t64 libxtst6 libxcvt0 \
+    fonts-wqy-microhei gstreamer1.0-tools gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+    gstreamer1.0-pulseaudio \
+    libvulkan1 mesa-vulkan-drivers intel-media-va-driver vainfo \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 1000 --shell /bin/bash neko \
+    && mkdir -p /tmp/.X11-unix /tmp/runtime-neko /etc/neko/supervisord /var/log/neko \
+       /var/www /home/neko/.config/pulse /home/neko/.config/chromium /home/neko/.local/share/xorg \
+    && chmod 1777 /tmp/.X11-unix \
+    && chmod 0700 /tmp/runtime-neko \
+    && chown -R neko:neko /home/neko /tmp/runtime-neko /var/log/neko \
+    && printf 'GoStream3D worker\n' > /var/www/index.html
+COPY --from=build /out/neko /usr/bin/neko
+COPY --from=build /usr/lib/xorg/modules/drivers/dummy_drv.so /usr/lib/xorg/modules/drivers/dummy_drv.so
+COPY --from=build /usr/lib/xorg/modules/input/neko_drv.so /usr/lib/xorg/modules/input/neko_drv.so
+COPY runtime-sources/runtime/xorg.conf /etc/neko/xorg.conf
+COPY runtime-sources/runtime/default.pa /etc/pulse/default.pa
+COPY runtime-sources/runtime/supervisord.conf /etc/neko/supervisord.conf
+COPY runtime-sources/runtime/supervisord.dbus.conf /etc/neko/supervisord/dbus.conf
+COPY runtime-sources/runtime/dbus /usr/bin/dbus
+COPY deploy/supervisord.worker.conf /etc/neko/supervisord/chromium.conf
+COPY deploy/sync-chromium-window.sh /usr/local/bin/sync-chromium-window.sh
+COPY runtime-sources/launch-gostream3d.sh /usr/local/bin/launch-gostream3d.sh
+COPY deploy/entrypoint.worker.sh /usr/local/bin/entrypoint.worker.sh
+RUN sed -i 's/\r$//' /usr/bin/dbus /usr/local/bin/launch-gostream3d.sh /usr/local/bin/sync-chromium-window.sh \
+    && sed -i 's/\r$//' /usr/local/bin/entrypoint.worker.sh \
+    && chmod 0755 /usr/bin/dbus /usr/local/bin/launch-gostream3d.sh /usr/local/bin/sync-chromium-window.sh /usr/local/bin/entrypoint.worker.sh
+ARG VERSION=dev
+LABEL org.opencontainers.image.version="${VERSION}"
+ENV USER=neko DISPLAY=:99.0 PULSE_SERVER=unix:/tmp/pulseaudio.socket \
+    XDG_RUNTIME_DIR=/tmp/runtime-neko NEKO_SERVER_BIND=:8080 GOSTREAM3D_CHROMIUM_CDP_PORT=9223
+# The legacy /ws adapter reads the API login token rather than a session cookie.
+# Keep authenticated token login enabled for both viewer and viewport connections.
+ENV NEKO_SESSION_COOKIE_ENABLED=false
+EXPOSE 8080 9222
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s \
+    CMD curl -fsS http://127.0.0.1:8080/health || exit 1
+ENTRYPOINT ["/usr/local/bin/entrypoint.worker.sh"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/neko/supervisord.conf"]

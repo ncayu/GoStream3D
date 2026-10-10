@@ -1,0 +1,23 @@
+{
+  "passed": true,
+  "checks": [
+    "creation summary and independent session payload",
+    "resolution and FPS gate",
+    "pagination and search/render/session/status filters",
+    "list/card switch",
+    "edit and stable viewing URL",
+    "start/stop",
+    "menu positioning and deletion failure/retry",
+    "CPU draft/saved state and failed/successful save",
+    "monitor sampling draft/save",
+    "10 themes, persistence and reset",
+    "desktop collapse and all 5 mobile pages",
+    "3 live ECharts SVG trends",
+    "no browser errors or outer horizontal overflow",
+    "saved server data unchanged"
+  ],
+  "interceptedWrites": 9,
+  "realProjectCount": 5,
+  "cpuPercent": 100,
+  "sampleSeconds": 30
+}

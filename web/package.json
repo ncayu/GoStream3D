@@ -1,0 +1,33 @@
+{
+  "name": "gostream3d-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/viewport-test.mjs && node scripts/player-input-test.mjs && node scripts/stream-player-input-test.mjs && node scripts/webrtc-performance-test.mjs && node scripts/request-test.mjs && node scripts/dashboard-refresh-test.mjs && node scripts/appearance-test.mjs && node scripts/project-deletion-test.mjs && node scripts/gpu-trend-test.mjs && node scripts/gpu-depth-test.mjs",
+    "test:gpu:browser": "node scripts/gpu-monitor-browser-test.mjs",
+    "test:depth:browser": "node scripts/gpu-depth-browser-test.mjs",
+    "test:help:browser": "node scripts/create-help-browser-test.mjs",
+    "test:viewport": "node scripts/viewport-test.mjs",
+    "test:appearance:browser": "node scripts/appearance-browser-test.mjs",
+    "test:projects:browser": "node scripts/project-bulk-delete-browser-test.mjs",
+    "test:limits:browser": "node scripts/session-limits-browser-test.mjs",
+    "test:presentation:browser": "node scripts/presentation-browser-test.mjs",
+    "test:account:browser": "node scripts/admin-account-browser-test.mjs",
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "echarts": "^6.1.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.24",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "typescript": "5.9.3",
+    "vite": "6.4.1"
+  }
+}

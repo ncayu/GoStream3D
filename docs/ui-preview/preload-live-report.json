@@ -1,0 +1,47 @@
+{
+  "name": "示例项目 A",
+  "quota": 6,
+  "preload": 3,
+  "ready": 3,
+  "available": 3,
+  "starting": 0,
+  "instances": 3,
+  "viewers": 0,
+  "preload_error": "",
+  "pool_error": "",
+  "channels": {
+    "max_channels": 3,
+    "active_channels": 3
+  },
+  "cpu_max_percent": 85,
+  "firstFrames": [
+    {
+      "route": 1,
+      "first_frame_ms": 4,
+      "bytes": 278763
+    },
+    {
+      "route": 2,
+      "first_frame_ms": 3,
+      "bytes": 278796
+    },
+    {
+      "route": 3,
+      "first_frame_ms": 2,
+      "bytes": 278800
+    }
+  ],
+  "simultaneous_viewers": 3,
+  "final_state": {
+    "ready_instances": 3,
+    "available_instances": 3,
+    "starting_instances": 0,
+    "viewers": 0
+  },
+  "checks": [
+    "three simultaneous independent viewer connections",
+    "all three first frames received without cold startup",
+    "pool replenished to three ready instances after disconnect",
+    "other project settings and CPU/monitor/config files preserved"
+  ]
+}
